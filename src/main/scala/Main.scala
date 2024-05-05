@@ -4,8 +4,11 @@ import org.jfree.chart.{ChartFactory, ChartUtils}
 import org.jfree.data.category.DefaultCategoryDataset
 import sttp.client3._
 import sttp.client3.circe._
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.temporal.{ChronoUnit, TemporalAdjusters}
 import java.io.{File, PrintWriter}
-import scala.io.Source
+import scala.io.{Source, StdIn}
 import scala.util.Try
 
 case class TimeSeriesData(datasetId: Int, startTime: String, endTime: String, value: Double)
@@ -27,11 +30,11 @@ object Main extends App {
     print("Enter selection: ")
     scala.io.StdIn.readLine() match {
       case "1" =>
-        val data = powerApi.fetchData("245", "2024-05-01T00:00:00Z", "2024-05-02T00:00:00Z")
+        val data = powerApi.fetchData("248", "2024-04-01T00:00:00Z", "2024-05-02T00:00:00Z")
         data.foreach(powerApi.printData)
         println()
       case "2" =>
-        val data = powerApi.fetchData("245", "2024-05-01T00:00:00Z", "2024-05-02T00:00:00Z")
+        val data = powerApi.fetchData("248", "2024-04-01T00:00:00Z", "2024-05-02T00:00:00Z")
         data.foreach(powerApi.printData)
         data.foreach(d => powerApi.storeData(d, "renewable_energy_data2.csv"))
         println()
@@ -39,6 +42,10 @@ object Main extends App {
         viewEnergyGenerationAndStorage()
       case "4" =>
         println("Analyse data option selected.")
+        val analyzeData = new AnalyzeData()
+        val energyType = analyzeData.EnergyType()
+        analyzeData.FilterData(energyType)
+        println()
       case "5" =>
         detectAndHandleIssues()
       case "0" =>
@@ -136,4 +143,106 @@ class PowerAPI {
   }
 
   private val lowOutputThreshold: Double = 200.0
+}
+
+class AnalyzeData { // Could add that user can choose to analyze data from a start and end date
+  def EnergyType(): String = {
+    println("Please enter the type of energy to analyze (solar, wind, hydro): ")
+    val energyType = StdIn.readLine().toLowerCase
+
+    energyType match {
+      case "solar" | "wind" | "hydro" => energyType
+      case _ =>
+        println("Invalid energy type. Please enter either 'solar', 'wind', or 'hydro'.")
+        EnergyType()
+    }
+  }
+
+  def FilterData(energyType: String): Unit = {
+    println("Please enter the interval for data analysis (hourly, daily, weekly, monthly): ")
+    val interval = StdIn.readLine().toLowerCase
+
+    val fileName = energyType match {
+      case "solar" => "renewable_energy_data2.csv"
+      case "wind" => "wind_energy_data.csv" // Need to change when have wind data
+      case "hydro" => "hydro_energy_data.csv" // Need to change when have hydro data
+    }
+
+    val data = analyze(interval, fileName)
+    printAnalysis(data, interval)
+  }
+
+  def analyze(interval: String, fileName: String): List[TimeSeriesData] = {
+    val source = scala.io.Source.fromFile(fileName)
+    try {
+      val lines = source.getLines().drop(1)
+      val data = lines.map { line =>
+        val parts = line.split(",").map(_.trim)
+        TimeSeriesData(parts(0).toInt, parts(1), parts(2), parts(3).toDouble)
+      }.toList
+
+      interval match {
+        case "hourly" => aggregateHourly(data)
+        case "daily" => aggregateDaily(data)
+        case "weekly" => aggregateWeekly(data)
+        case "monthly" => aggregateMonthly(data)
+        case _ => data
+      }
+    } finally {
+      source.close()
+    }
+  }
+
+  def aggregateHourly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    val groupedData = data.groupBy(d => ZonedDateTime.parse(d.startTime).truncatedTo(ChronoUnit.HOURS))
+    aggregate(groupedData)
+  }
+
+  def aggregateDaily(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    val groupedData = data.groupBy(d => ZonedDateTime.parse(d.startTime).truncatedTo(ChronoUnit.DAYS))
+    aggregate(groupedData)
+  }
+
+  def aggregateWeekly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    val groupedData = data.groupBy(d => ZonedDateTime.parse(d.startTime).`with`(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)))
+    aggregate(groupedData)
+  }
+
+  def aggregateMonthly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    val groupedData = data.groupBy(d => ZonedDateTime.parse(d.startTime).withDayOfMonth(1))
+    aggregate(groupedData)
+  }
+
+  def aggregate(groupedData: Map[ZonedDateTime, List[TimeSeriesData]]): List[TimeSeriesData] = {
+    groupedData.map { case (time, dataList) =>
+      val averageValue = dataList.map(_.value).sum / dataList.size
+      TimeSeriesData(dataList.head.datasetId, time.format(DateTimeFormatter.ISO_ZONED_DATE_TIME), "", averageValue)
+    }.toList
+  }
+
+  def printAnalysis(data: List[TimeSeriesData], interval: String): Unit = {
+    val values = data.map(_.value)
+    if (values.nonEmpty) {
+      val total = values.sum
+      val count = values.size
+      val mean = total / count
+
+      val sortedValues = values.sorted
+      val median = if (count % 2 == 0) (sortedValues(count / 2 - 1) + sortedValues(count / 2)) / 2.0 else sortedValues(count / 2)
+
+      val mode = values.groupBy(identity).mapValues(_.size).maxBy(_._2)._1
+
+      val range = values.max - values.min
+
+      val midrange = (values.min + values.max) / 2
+
+      println(s"The mean value for $interval data is $mean MW/h.")
+      println(s"The median value for $interval data is $median MW/h.")
+      println(s"The mode value for $interval data is $mode MW/h.")
+      println(s"The range of values for $interval data is $range MW/h.")
+      println(s"The midrange value for $interval data is $midrange MW/h.")
+    } else {
+      println("No data to analyze.")
+    }
+  }
 }
