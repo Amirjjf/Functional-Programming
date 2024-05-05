@@ -1,13 +1,11 @@
 import io.circe.generic.auto._
-import org.jfree.chart.plot.PlotOrientation
-import org.jfree.chart.{ChartFactory, ChartUtils}
-import org.jfree.data.category.DefaultCategoryDataset
 import sttp.client3._
 import sttp.client3.circe._
+
 import java.io.{File, PrintWriter}
+import java.text.SimpleDateFormat
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import java.text.SimpleDateFormat
 import java.time.temporal.{ChronoUnit, TemporalAdjusters}
 import java.util.concurrent.{Executors, TimeUnit}
 import scala.io.{Source, StdIn}
@@ -52,46 +50,73 @@ object Main extends App {
   }
   executor.scheduleAtFixedRate(task, 0, 1, TimeUnit.MINUTES)
 
+  val initialPowerPlant = powerApi.PowerPlant(0.0)
+  val updatedPowerPlant = powerApi.setMaximumStorageCapacity(initialPowerPlant, 100000.0)
+
   menuLoop()
 
   @annotation.tailrec
   def menuLoop(): Unit = {
     println("1. Current status\n" +
-      "2. Collect data\n" +
-      "3. View energy generation and storage\n" +
-      "4. Analyse data\n" +
-      "5. Detect and handle issues\n" +
-      "6. Monitor and Control energy sources\n" +
+      "2. Control powerplant operations\n" +
+      "3. Analyse data\n" +
       "0. Exit")
     print("Enter selection: ")
     scala.io.StdIn.readLine() match {
       case "1" =>
+        println()
+        println("Current energy production: ")
         val datasets = Map("181" -> "Wind", "191" -> "Hydro", "248" -> "Solar")
+        val warningTreshhold = Map("Wind" -> 20000.0, "Hydro" -> 30000.0, "Solar" -> 500.0)
+        var totalEnergyProduction = 0.0
+
+        var solarEnergyProduction = 0.0
+        var windEnergyProduction = 0.0
+        var hydroEnergyProduction = 0.0
+
         datasets.foreach { case (datasetId, energyType) =>
           val data = powerApi.readSecondLineFromFile(s"${datasetId}Data.csv")
           data.foreach(line => {
             val parts = line.split(",")
             val timeSeriesData = TimeSeriesData(parts(0).toInt, parts(1), parts(2), parts(3).toDouble)
-            println(s"$energyType Production: ${timeSeriesData.value} MW/h at ${timeSeriesData.startTime}")
+            var currentEnergyProduction = 0.0
+            energyType match {
+              case "Solar" =>
+                currentEnergyProduction = timeSeriesData.value * 4
+                solarEnergyProduction += currentEnergyProduction
+                totalEnergyProduction += solarEnergyProduction
+              case "Wind" =>
+                currentEnergyProduction = timeSeriesData.value * 20
+                windEnergyProduction += currentEnergyProduction
+                totalEnergyProduction += windEnergyProduction
+              case "Hydro" =>
+                currentEnergyProduction = timeSeriesData.value * 20
+                hydroEnergyProduction += currentEnergyProduction
+                totalEnergyProduction += hydroEnergyProduction
+            }
+            println(s"$energyType Production: $currentEnergyProduction MW/h generated between ${timeSeriesData.startTime} and ${timeSeriesData.endTime}")
+            if (currentEnergyProduction < warningTreshhold(energyType)) {
+              println(Console.YELLOW + s"Warning: Low production value detected for $energyType" + Console.RESET)
+            }
           })
         }
         println()
+        val capacity = powerApi.getMaximumStorageCapacity(updatedPowerPlant)
+        println(s"Total energy production: $totalEnergyProduction MWh")
+        println(s"Maximum storage capacity: $capacity MWh")
+        println(s"Percentage of maximum storage capacity used: ${(totalEnergyProduction / capacity) * 100}%")
+        if(totalEnergyProduction > capacity) {
+          println(Console.RED + "Warning: Maximum storage capacity exceeded" + Console.RESET)
+        }
+        println()
       case "2" =>
-        datasets.foreach(datasetId => fetchDataAndStore(powerApi, datasetId, formatter, now))
-        println("Data stored in renewable_energy_data.csv")
+        new EnergyController().controlEnergySource()
         println()
       case "3" =>
-        viewEnergyGenerationAndStorage()
-      case "4" =>
         println("Analyse data option selected.")
         val analyzeData = new AnalyzeData()
         val energyType = analyzeData.readEnergyType()
         analyzeData.FilterData(energyType)
-        println()
-      case "5" =>
-        detectAndHandleIssues()
-      case "6" =>
-        new EnergyController().controlEnergySource()
         println()
       case "0" =>
         println("Exiting...")
@@ -100,16 +125,6 @@ object Main extends App {
         println("Unrecognized command. Please try again.")
     }
     menuLoop()
-  }
-
-  def viewEnergyGenerationAndStorage(): Unit = {
-    println("Viewing energy generation and storage...")
-    powerApi.readDataFromCSV("renewable_energy_data.csv").foreach(powerApi.plotData)
-  }
-
-  def detectAndHandleIssues(): Unit = {
-    println("Detecting and handling issues based on stored data...")
-    powerApi.readDataFromCSV("renewable_energy_data.csv").map(powerApi.detectIssues)
   }
 }
 
@@ -125,10 +140,6 @@ class PowerAPI {
     sendRequest(apiKey, baseUrl, backend).map(_.data)
   }
 
-  def printData(data: List[TimeSeriesData]): Unit = {
-    data.foreach(d => println(s"Dataset ID: ${d.datasetId}, Start Time: ${d.startTime}, End Time: ${d.endTime}, Value MW/h: ${d.value}"))
-  }
-
   def storeData(data: List[TimeSeriesData], fileName: String): Unit = {
     val writer = new PrintWriter(new File(fileName))
     try {
@@ -139,42 +150,14 @@ class PowerAPI {
     }
   }
 
-  def readDataFromCSV(filePath: String): Try[List[TimeSeriesData]] = Try {
-    val source = Source.fromFile(filePath)
-    try {
-      source.getLines().drop(1).map { line =>
-        val parts = line.split(",").map(_.trim)
-        TimeSeriesData(parts(0).toInt, parts(1), parts(2), parts(3).toDouble)
-      }.toList
-    } finally {
-      source.close()
-    }
+  case class PowerPlant(maximumStorageCapacity: Double)
+
+  def setMaximumStorageCapacity(powerPlant: PowerPlant, value: Double): PowerPlant = {
+    powerPlant.copy(maximumStorageCapacity = value)
   }
 
-  def plotData(data: List[TimeSeriesData]): Unit = {
-    val dataset = new DefaultCategoryDataset()
-    data.foreach(d => dataset.addValue(d.value, "MW/h", d.startTime))
-    val chart = ChartFactory.createBarChart(
-      "Energy Generation Over Time",
-      "Start Time",
-      "Value (MW/h)",
-      dataset,
-      PlotOrientation.VERTICAL,
-      true,
-      true,
-      false
-    )
-    ChartUtils.saveChartAsJPEG(new File("EnergyGenerationChart.jpeg"), chart, 800, 600)
-  }
-
-  def detectIssues(data: List[TimeSeriesData]): Unit = {
-    val issues = data.filter(_.value < lowOutputThreshold)
-    if (issues.nonEmpty) {
-      println(s"Detected ${issues.length} issues related to low energy output:")
-      issues.foreach(issue => println(s"Dataset ID: ${issue.datasetId}, Time: ${issue.startTime} to ${issue.endTime}, Output: ${issue.value} MW/h"))
-    } else {
-      println("No issues detected.")
-    }
+  def getMaximumStorageCapacity(powerPlant: PowerPlant): Double = {
+    powerPlant.maximumStorageCapacity
   }
 
   def sendRequest(apiKey: String, url: String, backend: SttpBackend[Identity, Any]): Try[ApiResponse] = {
@@ -187,33 +170,6 @@ class PowerAPI {
     }
   }
 
-  def readLastLineFromFile(fileName: String): Option[String] = {
-    val source = Source.fromFile(fileName)
-    try {
-      val lines = source.getLines().toList
-      lines.lastOption
-    } catch {
-      case e: Exception =>
-        println(s"Error reading from file: $fileName")
-        None
-    } finally {
-      source.close()
-    }
-  }
-
-  def readFirstLineFromFile(fileName: String): Option[String] = {
-    val source = Source.fromFile(fileName)
-    try {
-      val lines = source.getLines().toList
-      lines.headOption
-    } catch {
-      case e: Exception =>
-        println(s"Error reading from file: $fileName")
-        None
-    } finally {
-      source.close()
-    }
-  }
 
   def readSecondLineFromFile(fileName: String): Option[String] = {
     val source = Source.fromFile(fileName)
@@ -320,13 +276,13 @@ class EnergyController {
   }
 
   def askAction(): String = {
-    println("Do you wish to view energy sources or handle any current alerts? (view/handle): ")
+    println("Do you wish to control energy generators or modify maximum capacity? (control/capacity): ")
     val action = scala.io.StdIn.readLine().toLowerCase
 
     action match {
-      case "view" | "handle" => action
+      case "control" | "capacity" => action
       case _ =>
-        println("Invalid action. Please enter either 'view' or 'handle'.")
+        println("Invalid action. Please enter either 'control' or 'capacity'.")
         askAction()
     }
   }
@@ -334,7 +290,7 @@ class EnergyController {
   def controlEnergySource(): Unit = {
     val action = askAction()
     action match {
-      case "view" =>
+      case "control" =>
         val energyType = askEnergySource()
         val fileName = energyType match {
           case "solar" => "248Data.csv"
@@ -344,16 +300,10 @@ class EnergyController {
         val (startTime, endTime) = ReadStartAndEndDates(fileName)
         printEnergySourceInfo(energyType, startTime, endTime)
         askYesOrNo(energyType)
-      case "handle" =>
-        handleAlerts()
       case _ =>
         println("Invalid action. Please enter either 'view' or 'handle'.")
         controlEnergySource()
     }
-  }
-
-  def handleAlerts(): Unit = {
-    println("Where alerts can be handled.")
   }
 
   def moveSolarPanel(newPosition: String): Unit = {
