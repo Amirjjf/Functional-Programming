@@ -28,10 +28,13 @@ object Main {
       val command = readLine()
       command match {
         case "1" =>
-          PowerAPI.fetchAndDisplayData("245", "2024-05-01T00:00:00Z", "2024-05-02T00:00:00Z")
+          val data = PowerAPI.fetchData("245", "2024-05-01T00:00:00Z", "2024-05-02T00:00:00Z").data
+          PowerAPI.printData(data)
           println()
         case "2" =>
-          PowerAPI.fetchAndStoreData("245", "2024-05-01T00:00:00Z", "2024-05-02T00:00:00Z")
+          val data = PowerAPI.fetchData("245", "2024-05-01T00:00:00Z", "2024-05-02T00:00:00Z").data
+          PowerAPI.printData(data)
+          PowerAPI.storeData(data, "renewable_energy_data2.csv")
           println()
         case "3" =>
           viewEnergyGenerationAndStorage()
@@ -66,34 +69,36 @@ object Main {
 // 191. Hydro power production - real time data (3 min) (https://data.fingrid.fi/en/datasets/191)
 // 248. Solar power generation forecast - updates every 15 minutes (https://data.fingrid.fi/en/datasets/248)
 object PowerAPI {
-  val apiKey = "f2ace58435cb48b593e949b5f5515c0b"
-  val backend = HttpURLConnectionBackend()
-  val lowOutputThreshold = 200.0  // Define threshold for low energy output detection
+  def apiKey: String = "f2ace58435cb48b593e949b5f5515c0b"
+  def backend: SttpBackend[Identity, Any] = HttpURLConnectionBackend()
+  def lowOutputThreshold: Double = 200.0  // Define threshold for low energy output detection
 
   def fetchData(datasets: String, startDate: String, endDate: String, currentPage: Int = 1, allData: List[TimeSeriesData] = List.empty[TimeSeriesData]): ApiResponse = {
     val baseUrl = s"https://data.fingrid.fi/api/data?datasets=$datasets&startTime=$startDate&endTime=$endDate&pageSize=10000"
     val pagedUrl = s"$baseUrl&page=$currentPage"
     val response = sendRequest(apiKey, pagedUrl, backend)
-    val apiResponse = handleResponse(response)
-    val newData = allData ++ apiResponse.data
-    apiResponse.pagination match {
-      case Some(pagination) if currentPage < pagination.lastPage =>
-        fetchData(datasets, startDate, endDate, currentPage + 1, newData)
-      case _ =>
-        ApiResponse(newData, None)
+    response.body match {
+      case Right(apiResponse) =>
+        val newData = allData ++ apiResponse.data
+        apiResponse.pagination match {
+          case Some(pagination) if currentPage < pagination.lastPage =>
+            fetchData(datasets, startDate, endDate, currentPage + 1, newData)
+          case _ =>
+            ApiResponse(newData, None)
+        }
+      case Left(_) =>
+        ApiResponse(List(), None)
     }
   }
 
-  def fetchAndDisplayData(datasets: String, startDate: String, endDate: String): List[String] = {
-    val data = fetchData(datasets, startDate, endDate)
-    data.data.map(d => s"Dataset ID: ${d.datasetId}, Start Time: ${d.startTime}, End Time: ${d.endTime}, Value MW/h: ${d.value}")
+  def printData(data: List[TimeSeriesData]): Unit = {
+    data.foreach(d => println(s"Dataset ID: ${d.datasetId}, Start Time: ${d.startTime}, End Time: ${d.endTime}, Value MW/h: ${d.value}"))
   }
 
-  def fetchAndStoreData(datasets: String, startDate: String, endDate: String): Unit = {
-    val data = fetchData(datasets, startDate, endDate)
-    val writer = new PrintWriter(new File("renewable_energy_data.csv"))
+  def storeData(data: List[TimeSeriesData], fileName: String): Unit = {
+    val writer = new PrintWriter(new File(fileName))
     writer.println("Dataset ID,Start Time,End Time,Value MW/h")
-    data.data.foreach { d =>
+    data.foreach { d =>
       writer.println(s"${d.datasetId},${d.startTime},${d.endTime},${d.value}")
     }
     writer.close()
@@ -148,20 +153,5 @@ object PowerAPI {
       .response(asJson[ApiResponse])
       .send(backend)
   }
-
-  def handleResponse(response: Response[Either[ResponseException[String, Error], ApiResponse]]): ApiResponse = {
-    response.body match {
-      case Right(apiResponse) => apiResponse
-      case Left(error) =>
-        error match {
-          case DeserializationException(body, e) =>
-            println(s"Deserialization error with body: $body, error: ${e.getMessage}")
-          case HttpError(body, statusCode) =>
-            println(s"HTTP error $statusCode with body: $body")
-          case otherError =>
-            println(s"Other error: ${otherError.getMessage}")
-        }
-        ApiResponse(List(), None)
-    }
-  }
+  
 }
