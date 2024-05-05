@@ -56,11 +56,8 @@ object Main extends App {
   @annotation.tailrec
   def menuLoop(): Unit = {
     println("1. Current status\n" +
-      "2. Collect data\n" +
-      "3. View energy generation and storage\n" +
-      "4. Analyse data\n" +
-      "5. Detect and handle issues\n" +
-      "6. Monitor and Control energy sources\n" +
+      "2. Analyze data\n" +
+      "3. Control powerplant operations \n" +
       "0. Exit")
     print("Enter selection: ")
     scala.io.StdIn.readLine() match {
@@ -76,20 +73,12 @@ object Main extends App {
         }
         println()
       case "2" =>
-        datasets.foreach(datasetId => fetchDataAndStore(powerApi, datasetId, formatter, now))
-        println("Data stored in renewable_energy_data.csv")
-        println()
-      case "3" =>
-        viewEnergyGenerationAndStorage()
-      case "4" =>
         println("Analyse data option selected.")
         val analyzeData = new AnalyzeData()
         val energyType = analyzeData.EnergyType()
         analyzeData.FilterData(energyType)
         println()
-      case "5" =>
-        detectAndHandleIssues()
-      case "6" =>
+      case "3" =>
         new EnergyController().controlEnergySource()
         println()
       case "0" =>
@@ -101,15 +90,6 @@ object Main extends App {
     menuLoop()
   }
 
-  def viewEnergyGenerationAndStorage(): Unit = {
-    println("Viewing energy generation and storage...")
-    powerApi.readDataFromCSV("renewable_energy_data.csv").foreach(powerApi.plotData)
-  }
-
-  def detectAndHandleIssues(): Unit = {
-    println("Detecting and handling issues based on stored data...")
-    powerApi.readDataFromCSV("renewable_energy_data.csv").map(powerApi.detectIssues)
-  }
 }
 
 // 181. Wind power production - real time data (3 min) (https://data.fingrid.fi/en/datasets/181)
