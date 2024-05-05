@@ -4,11 +4,10 @@ import org.jfree.chart.{ChartFactory, ChartUtils}
 import org.jfree.data.category.DefaultCategoryDataset
 import sttp.client3._
 import sttp.client3.circe._
-
+import java.io.{File, PrintWriter}
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.{ChronoUnit, TemporalAdjusters}
-import java.io.{File, PrintWriter}
 import java.util.concurrent.{Executors, TimeUnit}
 import scala.io.{Source, StdIn}
 import scala.util.Try
@@ -18,13 +17,21 @@ case class ApiResponse(data: List[TimeSeriesData], pagination: Option[Pagination
 case class Pagination(currentPage: Int, lastPage: Int)
 
 object Main extends App {
+  def fetchDataAndStore(powerApi: PowerAPI, datasetId: String, formatter: DateTimeFormatter, now: ZonedDateTime): Try[Unit] = {
+    val oneMonthAgo = now.minus(1, ChronoUnit.MONTHS)
+    val dataTry = powerApi.fetchData(datasetId, formatter.format(oneMonthAgo), formatter.format(now))
+    dataTry.map { data =>
+      powerApi.storeData(data, s"${datasetId}Data.csv")
+    }
+  }
+
+  val now = ZonedDateTime.now()
+  val formatter = DateTimeFormatter.ISO_INSTANT
   val powerApi = new PowerAPI()
 
-  val data = powerApi.fetchData("181", "2024-05-04T00:00:00Z", "2024-05-06T00:00:00Z")
-  data.foreach(powerApi.printData)
-  data.foreach(d => powerApi.storeData(d, "renewable_energy_data.csv"))
-  println("Data stored in renewable_energy_data.csv")
-  println()
+  // Fetch and store data for datasets
+  val datasets = List("181", "191", "248")
+  datasets.foreach(datasetId => fetchDataAndStore(powerApi, datasetId, formatter, now))
 
   // Start the thread that reads the API every minute
   val executor = Executors.newSingleThreadScheduledExecutor()
@@ -35,7 +42,7 @@ object Main extends App {
         val now = java.time.LocalDateTime.now()
         val fifteenMinutesAgo = now.minusMinutes(15)
         val data = powerApi.fetchData("181", fifteenMinutesAgo.toString, now.toString)
-        data.foreach(powerApi.printData)
+        data.foreach(d => powerApi.storeData(d, "181Data.csv"))
       }
     }
   }
@@ -45,7 +52,7 @@ object Main extends App {
 
   @annotation.tailrec
   def menuLoop(): Unit = {
-    println("1. Monitor/Control\n" +
+    println("1. Current status\n" +
       "2. Collect data\n" +
       "3. View energy generation and storage\n" +
       "4. Analyse data\n" +
@@ -54,13 +61,18 @@ object Main extends App {
     print("Enter selection: ")
     scala.io.StdIn.readLine() match {
       case "1" =>
-        val data = powerApi.fetchData("181", "2024-05-04T00:00:00Z", "2024-05-06T00:00:00Z")
-        data.foreach(powerApi.printData)
+        val datasets = Map("181" -> "Wind", "191" -> "Hydro", "248" -> "Solar")
+        datasets.foreach { case (datasetId, energyType) =>
+          val data = powerApi.readSecondLineFromFile(s"${datasetId}Data.csv")
+          data.foreach(line => {
+            val parts = line.split(",")
+            val timeSeriesData = TimeSeriesData(parts(0).toInt, parts(1), parts(2), parts(3).toDouble)
+            println(s"$energyType Production: ${timeSeriesData.value} MW/h at ${timeSeriesData.startTime}")
+          })
+        }
         println()
       case "2" =>
-        val data = powerApi.fetchData("181", "2024-05-04T00:00:00Z", "2024-05-06T00:00:00Z")
-        data.foreach(powerApi.printData)
-        data.foreach(d => powerApi.storeData(d, "renewable_energy_data.csv"))
+        datasets.foreach(datasetId => fetchDataAndStore(powerApi, datasetId, formatter, now))
         println("Data stored in renewable_energy_data.csv")
         println()
       case "3" =>
@@ -167,6 +179,48 @@ class PowerAPI {
     }
   }
 
+  def readLastLineFromFile(fileName: String): Option[String] = {
+    val source = Source.fromFile(fileName)
+    try {
+      val lines = source.getLines().toList
+      lines.lastOption
+    } catch {
+      case e: Exception =>
+        println(s"Error reading from file: $fileName")
+        None
+    } finally {
+      source.close()
+    }
+  }
+
+  def readFirstLineFromFile(fileName: String): Option[String] = {
+    val source = Source.fromFile(fileName)
+    try {
+      val lines = source.getLines().toList
+      lines.headOption
+    } catch {
+      case e: Exception =>
+        println(s"Error reading from file: $fileName")
+        None
+    } finally {
+      source.close()
+    }
+  }
+
+  def readSecondLineFromFile(fileName: String): Option[String] = {
+    val source = Source.fromFile(fileName)
+    try {
+      val lines = source.getLines().toList
+      lines.lift(1)
+    } catch {
+      case e: Exception =>
+        println(s"Error reading from file: $fileName")
+        None
+    } finally {
+      source.close()
+    }
+  }
+
   private val lowOutputThreshold: Double = 200.0
 }
 
@@ -188,9 +242,9 @@ class AnalyzeData { // Could add that user can choose to analyze data from a sta
     val interval = StdIn.readLine().toLowerCase
 
     val fileName = energyType match {
-      case "solar" => "renewable_energy_data2.csv"
-      case "wind" => "wind_energy_data.csv" // Need to change when have wind data
-      case "hydro" => "hydro_energy_data.csv" // Need to change when have hydro data
+      case "solar" => "248Data.csv"
+      case "wind" => "181Data.csv"
+      case "hydro" => "191Data.csv"
     }
 
     val data = analyze(interval, fileName)
@@ -269,5 +323,7 @@ class AnalyzeData { // Could add that user can choose to analyze data from a sta
     } else {
       println("No data to analyze.")
     }
+
+
   }
 }
