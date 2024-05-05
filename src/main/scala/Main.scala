@@ -7,6 +7,7 @@ import sttp.client3.circe._
 import java.io.{File, PrintWriter}
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.text.SimpleDateFormat
 import java.time.temporal.{ChronoUnit, TemporalAdjusters}
 import java.util.concurrent.{Executors, TimeUnit}
 import scala.io.{Source, StdIn}
@@ -56,8 +57,11 @@ object Main extends App {
   @annotation.tailrec
   def menuLoop(): Unit = {
     println("1. Current status\n" +
-      "2. Analyze data\n" +
-      "3. Control powerplant operations \n" +
+      "2. Collect data\n" +
+      "3. View energy generation and storage\n" +
+      "4. Analyse data\n" +
+      "5. Detect and handle issues\n" +
+      "6. Monitor and Control energy sources\n" +
       "0. Exit")
     print("Enter selection: ")
     scala.io.StdIn.readLine() match {
@@ -73,12 +77,20 @@ object Main extends App {
         }
         println()
       case "2" =>
-        println("Analyse data option selected.")
-        val analyzeData = new AnalyzeData()
-        val energyType = analyzeData.EnergyType()
-        analyzeData.FilterData(energyType)
+        datasets.foreach(datasetId => fetchDataAndStore(powerApi, datasetId, formatter, now))
+        println("Data stored in renewable_energy_data.csv")
         println()
       case "3" =>
+        viewEnergyGenerationAndStorage()
+      case "4" =>
+        println("Analyse data option selected.")
+        val analyzeData = new AnalyzeData()
+        val energyType = analyzeData.readEnergyType()
+        analyzeData.FilterData(energyType)
+        println()
+      case "5" =>
+        detectAndHandleIssues()
+      case "6" =>
         new EnergyController().controlEnergySource()
         println()
       case "0" =>
@@ -90,6 +102,15 @@ object Main extends App {
     menuLoop()
   }
 
+  def viewEnergyGenerationAndStorage(): Unit = {
+    println("Viewing energy generation and storage...")
+    powerApi.readDataFromCSV("renewable_energy_data.csv").foreach(powerApi.plotData)
+  }
+
+  def detectAndHandleIssues(): Unit = {
+    println("Detecting and handling issues based on stored data...")
+    powerApi.readDataFromCSV("renewable_energy_data.csv").map(powerApi.detectIssues)
+  }
 }
 
 // 181. Wind power production - real time data (3 min) (https://data.fingrid.fi/en/datasets/181)
@@ -211,65 +232,65 @@ class PowerAPI {
   private val lowOutputThreshold: Double = 200.0
 }
 
-// For the 1st option in the menu
+// For the 6th option in the menu
 class EnergyController {
-  val solarPanelPosition: Int = 1   // In real application would read the position from a sensor and update properly
-  val windTurbinePosition: Int = 1  // Just added to simulate how it would look like
-  val hydropowerPosition: Int = 1
 
-  def controlEnergySource(): Unit = {
-    println("Please enter the energy source you wish to view (solar, wind, hydro): ")
-    val energyType = scala.io.StdIn.readLine().toLowerCase
-    energyType match {
-      case "solar" | "wind" | "hydro" =>
-        val fileName = energyType match {
-          case "solar" => "248Data.csv"
-          case "wind" => "181Data.csv"
-          case "hydro" => "191Data.csv"
-        }
-        val (startTime, endTime) = ReadStartAndEndDates(fileName)
-        println(s"The $energyType energy source started collecting energy on $startTime.")
-        println(s"New data was last added to the $energyType energy source on $endTime.")
+  def askQuestionAndPerformAction(question: String, validResponses: Set[String], action: String => Unit): Unit = {
+    println(question)
+    val response = scala.io.StdIn.readLine().toLowerCase
 
-        val currentPosition = energyType match {
-          case "solar" => solarPanelPosition
-          case "wind" => windTurbinePosition
-          case "hydro" => hydropowerPosition
-        }
-        println(s"The current position of $energyType is $currentPosition. Do you want to change the position? (yes/no)")
-        scala.io.StdIn.readLine().toLowerCase match {
-          case "yes" =>
-            def askForNewPosition(): Unit = {
-              println("Please enter the new position (1-5) or 'abort' to cancel: ")
-              val newPosition = scala.io.StdIn.readLine().toLowerCase
-              newPosition match {
-                case "abort" => return
-                case "1" | "2" | "3" | "4" | "5" =>
-                  if (newPosition.toInt == currentPosition) {
-                    println(s"The $energyType is already in position $newPosition. Please try again.")
-                    askForNewPosition()
-                  } else {
-                    energyType match {
-                      case "solar" => moveSolarPanel(newPosition.toInt)
-                      case "wind" => moveWindTurbine(newPosition.toInt)
-                      case "hydro" => moveHydropower(newPosition.toInt)
-                    }
-                  }
-                case _ =>
-                  println("Invalid position.")
-                  askForNewPosition()
-              }
-            }
-            askForNewPosition()
-          case "no" => println(s"The position of $energyType remains at $currentPosition.")
-          case _ =>
-            println("Invalid response.")
-            controlEnergySource()
-        }
-      case _ =>
-        println("Invalid energy type. Please enter either 'solar', 'wind', or 'hydro'.")
-        controlEnergySource()
+    if (validResponses.contains(response)) {
+      action(response)
+    } else {
+      println("Invalid response. Please try again.")
+      askQuestionAndPerformAction(question, validResponses, action)
     }
+  }
+
+  def askForNewPosition(energyType: String): Unit = {
+    val (question, validResponses) = energyType match {
+      case "solar" => ("Please enter the new position (north, east, south, west, the sun) or 'abort' to cancel: ", Set("north", "east", "south", "west", "the sun", "abort"))
+      case "wind" | "hydro" => ("Please enter the new position (25%, 50%, 75%, 100%) or 'abort' to cancel: ", Set("25%", "50%", "75%", "100%", "abort"))
+      case _ => ("Invalid energy type.", Set.empty[String]) // Ensure that this is a Set[String]
+    }
+
+    askQuestionAndPerformAction(question, validResponses, {
+      case "abort" => return
+      case newPosition if newPosition == getCurrentPosition(energyType) =>
+        println(s"The $energyType is already at $newPosition. Please try again.")
+        askForNewPosition(energyType)
+      case newPosition =>
+        energyType match {
+          case "solar" => moveSolarPanel(newPosition)
+          case "wind" => moveWindTurbine(newPosition)
+          case "hydro" => moveHydropower(newPosition)
+        }
+    })
+  }
+
+  def getCurrentPosition(energyType: String): String = energyType match { // On a real application this would be retrieve info from the devices
+    case "solar" => "the sun"
+    case "wind" => "pitch control at 50%"
+    case "hydro" => "Flow control at 50%"
+  }
+
+  def askYesOrNo(energyType: String): Unit = {
+    val question = energyType match {
+      case "solar" => s"The solar panel is currently facing ${getCurrentPosition(energyType)}. Do you want to change its direction? (yes/no)"
+      case "wind" => s"The wind turbine is currently at ${getCurrentPosition(energyType)} pitch control. Do you want to adjust the pitch? (yes/no)"
+      case "hydro" => s"The hydropower is currently at ${getCurrentPosition(energyType)} flow control. Do you want to adjust the flow? (yes/no)"
+      case _ => "Invalid energy type."
+    }
+
+    askQuestionAndPerformAction(question, Set("yes", "no"), {
+      case "yes" => askForNewPosition(energyType)
+      case "no" => println(s"The set value of $energyType remains at ${getCurrentPosition(energyType)}.")
+    })
+  }
+
+  def printEnergySourceInfo(energyType: String, startTime: String, endTime: String): Unit = {
+    println(s"The $energyType energy source started collecting energy on $startTime.")
+    println(s"New data was last added to the $energyType energy source on $endTime.")
   }
 
   def ReadStartAndEndDates(fileName: String): (String, String) = {
@@ -286,25 +307,74 @@ class EnergyController {
     (zonedStartDate.format(formatter), zonedEndDate.format(formatter))
   }
 
-  def moveSolarPanel(newPosition: Int): Unit = {
-    // solarPanelPosition = newPosition
-    println(s"The position of the solar panel has been changed to $newPosition.")
+  def askEnergySource(): String = {
+    println("Please enter the energy source you wish to view (solar, wind, hydro): ")
+    val energyType = scala.io.StdIn.readLine().toLowerCase
+
+    energyType match {
+      case "solar" | "wind" | "hydro" => energyType
+      case _ =>
+        println("Invalid energy type. Please enter either 'solar', 'wind', or 'hydro'.")
+        askEnergySource()
+    }
   }
 
-  def moveWindTurbine(newPosition: Int): Unit = {
-    // windTurbinePosition = newPosition
-    println(s"The position of the wind turbine has been changed to $newPosition.")
+  def askAction(): String = {
+    println("Do you wish to view energy sources or handle any current alerts? (view/handle): ")
+    val action = scala.io.StdIn.readLine().toLowerCase
+
+    action match {
+      case "view" | "handle" => action
+      case _ =>
+        println("Invalid action. Please enter either 'view' or 'handle'.")
+        askAction()
+    }
   }
 
-  def moveHydropower(newPosition: Int): Unit = {
-    // hydropowerPosition = newPosition
-    println(s"The position of the hydropower has been changed to $newPosition.")
+  def controlEnergySource(): Unit = {
+    val action = askAction()
+    action match {
+      case "view" =>
+        val energyType = askEnergySource()
+        val fileName = energyType match {
+          case "solar" => "248Data.csv"
+          case "wind" => "181Data.csv"
+          case "hydro" => "191Data.csv"
+        }
+        val (startTime, endTime) = ReadStartAndEndDates(fileName)
+        printEnergySourceInfo(energyType, startTime, endTime)
+        askYesOrNo(energyType)
+      case "handle" =>
+        handleAlerts()
+      case _ =>
+        println("Invalid action. Please enter either 'view' or 'handle'.")
+        controlEnergySource()
+    }
+  }
+
+  def handleAlerts(): Unit = {
+    println("Where alerts can be handled.")
+  }
+
+  def moveSolarPanel(newPosition: String): Unit = {
+    println(s"The direction of the solar panel has been updated to face $newPosition.")
+    println("Handled as a simulation in the code. A real application would connect to the devices.")
+  }
+
+  def moveWindTurbine(newPosition: String): Unit = {
+    println(s"The pitch control of the wind turbine has been updated to $newPosition.")
+    println("Handled as a simulation in the code. A real application would connect to the devices.")
+  }
+
+  def moveHydropower(newPosition: String): Unit = {
+    println(s"The flow control of the hydropower has been updated to $newPosition.")
+    println("Handled as a simulation in the code. A real application would connect to the devices.")
   }
 }
 
 
-class AnalyzeData { // Could add that user can choose to analyze data from a start and end date
-  def EnergyType(): String = {
+class AnalyzeData {
+  def readEnergyType(): String = {
     println("Please enter the type of energy to analyze (solar, wind, hydro): ")
     val energyType = StdIn.readLine().toLowerCase
 
@@ -312,25 +382,103 @@ class AnalyzeData { // Could add that user can choose to analyze data from a sta
       case "solar" | "wind" | "hydro" => energyType
       case _ =>
         println("Invalid energy type. Please enter either 'solar', 'wind', or 'hydro'.")
-        EnergyType()
+        readEnergyType()
+    }
+  }
+
+  def readInterval(): String = {
+    println("Please enter the interval for data analysis (hourly, daily, weekly, monthly): ")
+    val interval = StdIn.readLine().toLowerCase
+
+    interval match {
+      case "hourly" | "daily" | "weekly" | "monthly" => interval
+      case _ =>
+        println("Invalid interval. Please enter either 'hourly', 'daily', 'weekly', or 'monthly'.")
+        readInterval()
+    }
+  }
+
+  def readRangeChoice(): String = {
+    println("Do you want to analyze the whole data set or a specific range? (whole/range)")
+    val rangeChoice = StdIn.readLine().toLowerCase
+    rangeChoice match {
+      case "whole" | "range" => rangeChoice
+      case _ =>
+        println("Invalid choice. Please enter either 'whole' or 'range'.")
+        readRangeChoice()
     }
   }
 
   def FilterData(energyType: String): Unit = {
-    println("Please enter the interval for data analysis (hourly, daily, weekly, monthly): ")
-    val interval = StdIn.readLine().toLowerCase
-
     val fileName = energyType match {
       case "solar" => "248Data.csv"
       case "wind" => "181Data.csv"
       case "hydro" => "191Data.csv"
     }
 
-    val data = analyze(interval, fileName)
-    printAnalysis(data, interval)
+    val interval = readInterval()
+    val rangeChoice = readRangeChoice()
+
+    rangeChoice match {
+      case "whole" =>
+        val data = analyze(interval, fileName, None, None)
+        printAnalysis(data, interval)
+      case "range" =>
+        val (oldestEntry, newestEntry) = getOldestAndNewestEntries(fileName)
+        println(s"The oldest entry in the data is from $oldestEntry and the newest entry is from $newestEntry")
+        val (startDate, endDate) = getValidDates(oldestEntry, newestEntry)
+        val data = analyze(interval, fileName, Some(startDate), Some(endDate))
+        printAnalysis(data, interval)
+      case _ =>
+        println("Invalid choice. Please enter either 'whole' or 'range'.")
+        FilterData(energyType)
+    }
   }
 
-  def analyze(interval: String, fileName: String): List[TimeSeriesData] = {
+  def getValidDates(oldestEntry: String, newestEntry: String): (String, String) = {
+    val startDate = CheckDateFormat("Please enter the start date (yyyy-MM-dd): ")
+    val endDate = CheckDateFormat("Please enter the end date (yyyy-MM-dd): ")
+    if (isDateWithinRange(startDate, endDate, oldestEntry, newestEntry)) {
+      (startDate, endDate)
+    } else {
+      println("The start date and end date must be within the range of the data. Please re-enter the dates.")
+      getValidDates(oldestEntry, newestEntry)
+    }
+  }
+
+  def isDateWithinRange(startDate: String, endDate: String, oldestEntry: String, newestEntry: String): Boolean = {
+    val start = java.time.LocalDate.parse(startDate)
+    val end = java.time.LocalDate.parse(endDate)
+    val oldest = java.time.LocalDate.parse(oldestEntry)
+    val newest = java.time.LocalDate.parse(newestEntry)
+    !(start.isBefore(oldest) || end.isAfter(newest))
+  }
+
+  def CheckDateFormat(prompt: String): String = {
+    try {
+      println(prompt)
+      val input = StdIn.readLine()
+      java.time.LocalDate.parse(input)
+      input
+    } catch {
+      case _: java.time.format.DateTimeParseException =>
+        println("Invalid date format. Please enter the date in the format yyyy-MM-dd.")
+        CheckDateFormat(prompt)
+    }
+  }
+
+  def getOldestAndNewestEntries(fileName: String): (String, String) = {
+    val source = scala.io.Source.fromFile(fileName)
+    val lines = source.getLines().drop(1).toList // Skip the header line
+    source.close()
+    val dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+    val oldestEntry = dateFormat.parse(lines.last.split(",")(1))
+    val newestEntry = dateFormat.parse(lines.head.split(",")(1))
+    val outputFormat = new SimpleDateFormat("yyyy-MM-dd")
+    (outputFormat.format(oldestEntry), outputFormat.format(newestEntry))
+  }
+
+  def analyze(interval: String, fileName: String, startDate: Option[String], endDate: Option[String]): List[TimeSeriesData] = {
     val source = scala.io.Source.fromFile(fileName)
     try {
       val lines = source.getLines().drop(1)
@@ -339,43 +487,45 @@ class AnalyzeData { // Could add that user can choose to analyze data from a sta
         TimeSeriesData(parts(0).toInt, parts(1), parts(2), parts(3).toDouble)
       }.toList
 
-      interval match {
-        case "hourly" => aggregateHourly(data)
-        case "daily" => aggregateDaily(data)
-        case "weekly" => aggregateWeekly(data)
-        case "monthly" => aggregateMonthly(data)
+      val filteredData = (startDate, endDate) match {
+        case (Some(start), Some(end)) => data.filter(d => d.startTime >= start && d.endTime <= end)
         case _ => data
+      }
+
+      interval match {
+        case "hourly" => aggregateHourly(filteredData)
+        case "daily" => aggregateDaily(filteredData)
+        case "weekly" => aggregateWeekly(filteredData)
+        case "monthly" => aggregateMonthly(filteredData)
+        case _ => filteredData
       }
     } finally {
       source.close()
     }
   }
 
-  def aggregateHourly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
-    val groupedData = data.groupBy(d => ZonedDateTime.parse(d.startTime).truncatedTo(ChronoUnit.HOURS))
-    aggregate(groupedData)
-  }
-
-  def aggregateDaily(data: List[TimeSeriesData]): List[TimeSeriesData] = {
-    val groupedData = data.groupBy(d => ZonedDateTime.parse(d.startTime).truncatedTo(ChronoUnit.DAYS))
-    aggregate(groupedData)
-  }
-
-  def aggregateWeekly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
-    val groupedData = data.groupBy(d => ZonedDateTime.parse(d.startTime).`with`(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)))
-    aggregate(groupedData)
-  }
-
-  def aggregateMonthly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
-    val groupedData = data.groupBy(d => ZonedDateTime.parse(d.startTime).withDayOfMonth(1))
-    aggregate(groupedData)
-  }
-
-  def aggregate(groupedData: Map[ZonedDateTime, List[TimeSeriesData]]): List[TimeSeriesData] = {
+  def aggregate(data: List[TimeSeriesData], grouper: ZonedDateTime => ZonedDateTime): List[TimeSeriesData] = {
+    val groupedData = data.groupBy(d => grouper(ZonedDateTime.parse(d.startTime)))
     groupedData.map { case (time, dataList) =>
       val averageValue = dataList.map(_.value).sum / dataList.size
       TimeSeriesData(dataList.head.datasetId, time.format(DateTimeFormatter.ISO_ZONED_DATE_TIME), "", averageValue)
     }.toList
+  }
+
+  def aggregateHourly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    aggregate(data, _.truncatedTo(ChronoUnit.HOURS))
+  }
+
+  def aggregateDaily(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    aggregate(data, _.truncatedTo(ChronoUnit.DAYS))
+  }
+
+  def aggregateWeekly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    aggregate(data, _.`with`(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)))
+  }
+
+  def aggregateMonthly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    aggregate(data, _.withDayOfMonth(1))
   }
 
   def printAnalysis(data: List[TimeSeriesData], interval: String): Unit = {
