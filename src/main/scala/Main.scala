@@ -75,7 +75,7 @@ object Main extends App {
         detectAndHandleIssues()
       case "0" =>
         println("Exiting...")
-        return
+        System.exit(0)
       case _ =>
         println("Unrecognized command. Please try again.")
     }
