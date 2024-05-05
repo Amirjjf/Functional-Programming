@@ -4,7 +4,6 @@ import org.jfree.chart.{ChartFactory, ChartUtils}
 import org.jfree.data.category.DefaultCategoryDataset
 import sttp.client3._
 import sttp.client3.circe._
-
 import java.io.{File, PrintWriter}
 import scala.io.Source
 import scala.util.Try
