@@ -40,9 +40,12 @@ object Main extends App {
       val currentMinute = java.time.LocalDateTime.now().getMinute
       if (List(1, 16, 31, 46).contains(currentMinute)) {
         val now = java.time.LocalDateTime.now()
-        val fifteenMinutesAgo = now.minusMinutes(15)
-        val data = powerApi.fetchData("181", fifteenMinutesAgo.toString, now.toString)
-        data.foreach(d => powerApi.storeData(d, "181Data.csv"))
+        val oneMonthAgo = now.minusMonths(1)
+        val datasets = List("181", "191", "248")
+        datasets.foreach { datasetId =>
+          val data = powerApi.fetchData(datasetId, oneMonthAgo.toString, now.toString)
+          data.foreach(d => powerApi.storeData(d, s"${datasetId}Data.csv"))
+        }
       }
     }
   }
