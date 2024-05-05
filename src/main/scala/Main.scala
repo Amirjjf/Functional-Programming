@@ -15,78 +15,82 @@ case class Pagination(currentPage: Int, lastPage: Int)
 
 object Main {
   def main(args: Array[String]): Unit = {
-    var continue = true
-    while (continue) {
-      println("Enter command (1. monitor/control, 2. collect data, 3. view energy generation and storage, 4. analyse data, 5. detect and handle issues, 6. exit):")
+    menuLoop() // Start the main menu loop
+
+    def menuLoop(): Unit = {
+      println("1. Monitor/Control\n" +
+        "2. Collect data\n" +
+        "3. View energy generation and storage\n" +
+        "4. Analyse data\n" +
+        "5. Detect and handle issues\n" +
+        "0. Exit")
+      print("Enter selection: ")
       val command = readLine()
       command match {
         case "1" =>
-          WindPowerForecast.fetchAndDisplayData()
+          PowerAPI.fetchAndDisplayData("245", "2024-05-01T00:00:00Z", "2024-05-02T00:00:00Z")
+          println()
         case "2" =>
-          WindPowerForecast.fetchAndStoreData()
+          PowerAPI.fetchAndStoreData("245", "2024-05-01T00:00:00Z", "2024-05-02T00:00:00Z")
+          println()
         case "3" =>
           viewEnergyGenerationAndStorage()
         case "4" =>
-          // Implementation for analyse data
+        // Implementation for analyse data
         case "5" =>
           detectAndHandleIssues()
-        case "6" =>
-          continue = false
+        case "0" =>
+          return // Exit the menu loop
         case _ =>
           println("Unrecognized command. Please try again.")
       }
+      menuLoop()
     }
+
   }
 
   def viewEnergyGenerationAndStorage(): Unit = {
     println("Viewing energy generation and storage...")
-    val data = WindPowerForecast.readDataFromCSV("renewable_energy_data.csv")
-    WindPowerForecast.plotData(data)
+    val data = PowerAPI.readDataFromCSV("renewable_energy_data.csv")
+    PowerAPI.plotData(data)
   }
 
   def detectAndHandleIssues(): Unit = {
     println("Detecting and handling issues based on stored data...")
-    val data = WindPowerForecast.readDataFromCSV("renewable_energy_data.csv")
-    WindPowerForecast.detectIssues(data)
+    val data = PowerAPI.readDataFromCSV("renewable_energy_data.csv")
+    PowerAPI.detectIssues(data)
   }
 }
 
-object WindPowerForecast {
+// 181. Wind power production - real time data (3 min) (https://data.fingrid.fi/en/datasets/181)
+// 191. Hydro power production - real time data (3 min) (https://data.fingrid.fi/en/datasets/191)
+// 248. Solar power generation forecast - updates every 15 minutes (https://data.fingrid.fi/en/datasets/248)
+object PowerAPI {
   val apiKey = "f2ace58435cb48b593e949b5f5515c0b"
-  val datasets = "245"
-  val startDate = "2024-04-20T00:00:00Z"
-  val endDate = "2024-05-03T00:00:00Z"
-  val baseUrl = s"https://data.fingrid.fi/api/data?datasets=$datasets&startTime=$startDate&endTime=$endDate&pageSize=10000"
   val backend = HttpURLConnectionBackend()
   val lowOutputThreshold = 200.0  // Define threshold for low energy output detection
 
-  def fetchData(): ApiResponse = {
-    var currentPage = 1
-    var lastPage = 1
-    var allData = List.empty[TimeSeriesData]
-
-    do {
-      val pagedUrl = s"$baseUrl&page=$currentPage"
-      val response = sendRequest(apiKey, pagedUrl, backend)
-      val apiResponse = handleResponse(response)
-      apiResponse.data.foreach(data => allData :+= data)
-      apiResponse.pagination.foreach { pagination =>
-        currentPage = pagination.currentPage
-        lastPage = pagination.lastPage
-        currentPage += 1
-      }
-    } while (currentPage <= lastPage)
-
-    ApiResponse(allData, None)
+  def fetchData(datasets: String, startDate: String, endDate: String, currentPage: Int = 1, allData: List[TimeSeriesData] = List.empty[TimeSeriesData]): ApiResponse = {
+    val baseUrl = s"https://data.fingrid.fi/api/data?datasets=$datasets&startTime=$startDate&endTime=$endDate&pageSize=10000"
+    val pagedUrl = s"$baseUrl&page=$currentPage"
+    val response = sendRequest(apiKey, pagedUrl, backend)
+    val apiResponse = handleResponse(response)
+    val newData = allData ++ apiResponse.data
+    apiResponse.pagination match {
+      case Some(pagination) if currentPage < pagination.lastPage =>
+        fetchData(datasets, startDate, endDate, currentPage + 1, newData)
+      case _ =>
+        ApiResponse(newData, None)
+    }
   }
 
-  def fetchAndDisplayData(): Unit = {
-    val data = fetchData()
-    data.data.foreach(d => println(s"Dataset ID: ${d.datasetId}, Start Time: ${d.startTime}, End Time: ${d.endTime}, Value MW/h: ${d.value}"))
+  def fetchAndDisplayData(datasets: String, startDate: String, endDate: String): List[String] = {
+    val data = fetchData(datasets, startDate, endDate)
+    data.data.map(d => s"Dataset ID: ${d.datasetId}, Start Time: ${d.startTime}, End Time: ${d.endTime}, Value MW/h: ${d.value}")
   }
 
-  def fetchAndStoreData(): Unit = {
-    val data = fetchData()
+  def fetchAndStoreData(datasets: String, startDate: String, endDate: String): Unit = {
+    val data = fetchData(datasets, startDate, endDate)
     val writer = new PrintWriter(new File("renewable_energy_data.csv"))
     writer.println("Dataset ID,Start Time,End Time,Value MW/h")
     data.data.foreach { d =>
