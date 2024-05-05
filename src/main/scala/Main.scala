@@ -4,10 +4,12 @@ import org.jfree.chart.{ChartFactory, ChartUtils}
 import org.jfree.data.category.DefaultCategoryDataset
 import sttp.client3._
 import sttp.client3.circe._
+
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.{ChronoUnit, TemporalAdjusters}
 import java.io.{File, PrintWriter}
+import java.util.concurrent.{Executors, TimeUnit}
 import scala.io.{Source, StdIn}
 import scala.util.Try
 
@@ -17,6 +19,28 @@ case class Pagination(currentPage: Int, lastPage: Int)
 
 object Main extends App {
   val powerApi = new PowerAPI()
+
+  val data = powerApi.fetchData("181", "2024-05-04T00:00:00Z", "2024-05-06T00:00:00Z")
+  data.foreach(powerApi.printData)
+  data.foreach(d => powerApi.storeData(d, "renewable_energy_data.csv"))
+  println("Data stored in renewable_energy_data.csv")
+  println()
+
+  // Start the thread that reads the API every minute
+  val executor = Executors.newSingleThreadScheduledExecutor()
+  val task = new Runnable {
+    def run(): Unit = {
+      val currentMinute = java.time.LocalDateTime.now().getMinute
+      if (List(1, 16, 31, 46).contains(currentMinute)) {
+        val now = java.time.LocalDateTime.now()
+        val fifteenMinutesAgo = now.minusMinutes(15)
+        val data = powerApi.fetchData("181", fifteenMinutesAgo.toString, now.toString)
+        data.foreach(powerApi.printData)
+      }
+    }
+  }
+  executor.scheduleAtFixedRate(task, 0, 1, TimeUnit.MINUTES)
+
   menuLoop()
 
   @annotation.tailrec
@@ -30,13 +54,14 @@ object Main extends App {
     print("Enter selection: ")
     scala.io.StdIn.readLine() match {
       case "1" =>
-        val data = powerApi.fetchData("248", "2024-04-01T00:00:00Z", "2024-05-02T00:00:00Z")
+        val data = powerApi.fetchData("181", "2024-05-04T00:00:00Z", "2024-05-06T00:00:00Z")
         data.foreach(powerApi.printData)
         println()
       case "2" =>
-        val data = powerApi.fetchData("248", "2024-04-01T00:00:00Z", "2024-05-02T00:00:00Z")
+        val data = powerApi.fetchData("181", "2024-05-04T00:00:00Z", "2024-05-06T00:00:00Z")
         data.foreach(powerApi.printData)
-        data.foreach(d => powerApi.storeData(d, "renewable_energy_data2.csv"))
+        data.foreach(d => powerApi.storeData(d, "renewable_energy_data.csv"))
+        println("Data stored in renewable_energy_data.csv")
         println()
       case "3" =>
         viewEnergyGenerationAndStorage()
