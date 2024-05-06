@@ -188,7 +188,22 @@ class PowerAPI {
   private val lowOutputThreshold: Double = 200.0
 }
 
-// For the 6th option in the menu
+object StartEndDatesFunction {
+  def getStartAndEndDates(fileName: String, dateFormat: String): (String, String) = {
+    val source = scala.io.Source.fromFile(fileName)
+    val lines = source.getLines().drop(1).toList
+    source.close()
+    val firstLine = lines(0)
+    val lastLine = lines.last
+    val originalStartDate = lastLine.split(",")(1)
+    val originalEndDate = firstLine.split(",")(1)
+    val zonedStartDate = ZonedDateTime.parse(originalStartDate)
+    val zonedEndDate = ZonedDateTime.parse(originalEndDate)
+    val formatter = DateTimeFormatter.ofPattern(dateFormat)
+    (zonedStartDate.format(formatter), zonedEndDate.format(formatter))
+  }
+}
+
 class EnergyController {
 
   def askQuestionAndPerformAction(question: String, validResponses: Set[String], action: String => Unit): Unit = {
@@ -219,7 +234,7 @@ class EnergyController {
         energyType match {
           case "solar" => moveSolarPanel(newPosition)
           case "wind" => moveWindTurbine(newPosition)
-          case "hydro" => moveHydropower(newPosition)
+          case "hydro" => moveHydroPower(newPosition)
         }
     })
   }
@@ -230,7 +245,7 @@ class EnergyController {
     case "hydro" => "50%"
   }
 
-  def askYesOrNo(energyType: String): Unit = {
+  def AskYesOrNo(energyType: String): Unit = {
     val question = energyType match {
       case "solar" => s"The solar panel is currently facing ${getCurrentPosition(energyType)}. Do you want to change its direction? (yes/no)"
       case "wind" => s"The wind turbine is currently at ${getCurrentPosition(energyType)} pitch control. Do you want to adjust the pitch? (yes/no)"
@@ -247,20 +262,6 @@ class EnergyController {
   def printEnergySourceInfo(energyType: String, startTime: String, endTime: String): Unit = {
     println(s"The $energyType energy source started collecting energy on $startTime.")
     println(s"New data was last added to the $energyType energy source on $endTime.")
-  }
-
-  def ReadStartAndEndDates(fileName: String): (String, String) = {
-    val source = scala.io.Source.fromFile(fileName)
-    val lines = source.getLines().drop(1).toList
-    source.close()
-    val firstLine = lines(0)
-    val lastLine = lines.last
-    val originalStartDate = lastLine.split(",")(1)
-    val originalEndDate = firstLine.split(",")(1)
-    val zonedStartDate = ZonedDateTime.parse(originalStartDate)
-    val zonedEndDate = ZonedDateTime.parse(originalEndDate)
-    val formatter = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
-    (zonedStartDate.format(formatter), zonedEndDate.format(formatter))
   }
 
   def askEnergySource(): String = {
@@ -282,9 +283,10 @@ class EnergyController {
       case "wind" => "181Data.csv"
       case "hydro" => "191Data.csv"
     }
-    val (startTime, endTime) = ReadStartAndEndDates(fileName)
+    val dateFormat = "yyyy/MM/dd HH:mm:ss"
+    val (startTime, endTime) = StartEndDatesFunction.getStartAndEndDates(fileName, dateFormat)
     printEnergySourceInfo(energyType, startTime, endTime)
-    askYesOrNo(energyType)
+    AskYesOrNo(energyType)
   }
 
   def moveSolarPanel(newPosition: String): Unit = {
@@ -297,7 +299,7 @@ class EnergyController {
     println("Handled as a simulation in the code. A real application would connect to the devices.")
   }
 
-  def moveHydropower(newPosition: String): Unit = {
+  def moveHydroPower(newPosition: String): Unit = {
     println(s"The flow control of the hydropower has been updated to $newPosition.")
     println("Handled as a simulation in the code. A real application would connect to the devices.")
   }
@@ -331,9 +333,9 @@ class AnalyzeData {
 
   def readRangeChoice(): String = {
     println("Do you want to analyze the whole data set or a specific range? (whole/range)")
-    val rangeChoice = StdIn.readLine().toLowerCase
-    rangeChoice match {
-      case "whole" | "range" => rangeChoice
+    val AnalyzeChoice = StdIn.readLine().toLowerCase
+    AnalyzeChoice match {
+      case "whole" | "range" => AnalyzeChoice
       case _ =>
         println("Invalid choice. Please enter either 'whole' or 'range'.")
         readRangeChoice()
@@ -355,7 +357,8 @@ class AnalyzeData {
         val data = analyze(interval, fileName, None, None)
         printAnalysis(data, interval)
       case "range" =>
-        val (oldestEntry, newestEntry) = getOldestAndNewestEntries(fileName)
+        val dateFormat = "yyyy-MM-dd"
+        val (oldestEntry, newestEntry) = StartEndDatesFunction.getStartAndEndDates(fileName, dateFormat)
         println(s"The oldest entry in the data is from $oldestEntry and the newest entry is from $newestEntry")
         val (startDate, endDate) = getValidDates(oldestEntry, newestEntry)
         val data = analyze(interval, fileName, Some(startDate), Some(endDate))
@@ -396,17 +399,6 @@ class AnalyzeData {
         println("Invalid date format. Please enter the date in the format yyyy-MM-dd. For example, enter '2024-04-12' for April 12, 2024.")
         CheckDateFormat(prompt)
     }
-  }
-
-  def getOldestAndNewestEntries(fileName: String): (String, String) = {
-    val source = scala.io.Source.fromFile(fileName)
-    val lines = source.getLines().drop(1).toList // Skip the header line
-    source.close()
-    val dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
-    val oldestEntry = dateFormat.parse(lines.last.split(",")(1))
-    val newestEntry = dateFormat.parse(lines.head.split(",")(1))
-    val outputFormat = new SimpleDateFormat("yyyy-MM-dd")
-    (outputFormat.format(oldestEntry), outputFormat.format(newestEntry))
   }
 
   def analyze(interval: String, fileName: String, startDate: Option[String], endDate: Option[String]): List[TimeSeriesData] = {
