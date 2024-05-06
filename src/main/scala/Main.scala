@@ -3,7 +3,6 @@ import sttp.client3._
 import sttp.client3.circe._
 
 import java.io.{File, PrintWriter}
-import java.text.SimpleDateFormat
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.{ChronoUnit, TemporalAdjusters}
@@ -68,38 +67,40 @@ object Main extends App {
         println("Current energy production: ")
         val datasets = Map("181" -> "Wind", "191" -> "Hydro", "248" -> "Solar")
         val warningTreshhold = Map("Wind" -> 20000.0, "Hydro" -> 30000.0, "Solar" -> 500.0)
-        var totalEnergyProduction = 0.0
 
-        var solarEnergyProduction = 0.0
-        var windEnergyProduction = 0.0
-        var hydroEnergyProduction = 0.0
-
-        datasets.foreach { case (datasetId, energyType) =>
-          val data = powerApi.readSecondLineFromFile(s"${datasetId}Data.csv")
-          data.foreach(line => {
+        val energyProductions = datasets.foldLeft((0.0, 0.0, 0.0, 0.0)) { case ((total, solar, wind, hydro), (datasetId, energyType)) =>
+          powerApi.readSecondLineFromFile(s"${datasetId}Data.csv").fold((total, solar, wind, hydro)) { line =>
             val parts = line.split(",")
             val timeSeriesData = TimeSeriesData(parts(0).toInt, parts(1), parts(2), parts(3).toDouble)
-            var currentEnergyProduction = 0.0
-            energyType match {
-              case "Solar" =>
-                currentEnergyProduction = timeSeriesData.value * 4
-                solarEnergyProduction += currentEnergyProduction
-                totalEnergyProduction += solarEnergyProduction
-              case "Wind" =>
-                currentEnergyProduction = timeSeriesData.value * 20
-                windEnergyProduction += currentEnergyProduction
-                totalEnergyProduction += windEnergyProduction
-              case "Hydro" =>
-                currentEnergyProduction = timeSeriesData.value * 20
-                hydroEnergyProduction += currentEnergyProduction
-                totalEnergyProduction += hydroEnergyProduction
+            val currentEnergyProduction = energyType match {
+              case "Solar" => timeSeriesData.value * 4
+              case "Wind" => timeSeriesData.value * 20
+              case "Hydro" => timeSeriesData.value * 20
             }
-            println(s"$energyType Production: $currentEnergyProduction MW/h generated between ${timeSeriesData.startTime} and ${timeSeriesData.endTime}")
-            if (currentEnergyProduction < warningTreshhold(energyType)) {
-              println(Console.YELLOW + s"Warning: Low production value detected for $energyType" + Console.RESET)
-            }
-          })
+            val newTotal = total + currentEnergyProduction
+            val newSolar = if (energyType == "Solar") solar + currentEnergyProduction else solar
+            val newWind = if (energyType == "Wind") wind + currentEnergyProduction else wind
+            val newHydro = if (energyType == "Hydro") hydro + currentEnergyProduction else hydro
+            (newTotal, newSolar, newWind, newHydro)
+          }
         }
+        val (totalEnergyProduction, solarEnergyProduction, windEnergyProduction, hydroEnergyProduction) = energyProductions
+
+        println(s"Solar energy production: $solarEnergyProduction MWh")
+        if (solarEnergyProduction < warningTreshhold("Solar")) {
+          println(Console.YELLOW + "Warning: Solar energy production is below the threshold" + Console.RESET)
+        }
+
+        println(s"Wind energy production: $windEnergyProduction MWh")
+        if (windEnergyProduction < warningTreshhold("Wind")) {
+          println(Console.YELLOW + "Warning: Wind energy production is below the threshold" + Console.RESET)
+        }
+
+        println(s"Hydro energy production: $hydroEnergyProduction MWh")
+        if (hydroEnergyProduction < warningTreshhold("Hydro")) {
+          println(Console.YELLOW + "Warning: Hydro energy production is below the threshold" + Console.RESET)
+        }
+
         println()
         val capacity = powerApi.getMaximumStorageCapacity(updatedPowerPlant)
         println(s"Total energy production: $totalEnergyProduction MWh")
@@ -184,8 +185,6 @@ class PowerAPI {
       source.close()
     }
   }
-
-  private val lowOutputThreshold: Double = 200.0
 }
 
 object StartEndDatesFunction {
