@@ -208,7 +208,7 @@ object StartEndDatesObject {
 
 class EnergyController {
 
-  def askQuestionAndPerformAction(question: String, validResponses: Set[String], action: String => Unit): Unit = {
+  def GetResponse(question: String, validResponses: Set[String], action: String => Unit): Unit = {
     println(question)
     val response = scala.io.StdIn.readLine().toLowerCase
 
@@ -216,7 +216,7 @@ class EnergyController {
       action(response)
     } else {
       println("Invalid response. Please try again.")
-      askQuestionAndPerformAction(question, validResponses, action)
+      GetResponse(question, validResponses, action)
     }
   }
 
@@ -227,7 +227,7 @@ class EnergyController {
       case _ => ("Invalid energy type.", Set.empty[String])
     }
 
-    askQuestionAndPerformAction(question, validResponses, {
+    GetResponse(question, validResponses, {
       case "abort" => return
       case newPosition if newPosition == getCurrentPosition(energyType) =>
         println(s"The $energyType is already at $newPosition. Please try again.")
@@ -255,7 +255,7 @@ class EnergyController {
       case _ => "Invalid energy type."
     }
 
-    askQuestionAndPerformAction(question, Set("yes", "no"), {
+    GetResponse(question, Set("yes", "no"), {
       case "yes" => askForNewPosition(energyType)
       case "no" => println(s"The set value of $energyType remains at ${getCurrentPosition(energyType)}.")
     })
