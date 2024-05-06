@@ -1,3 +1,7 @@
+// Group S
+// Amirreza Jafariandehkordi
+// Tom Malinen
+// Johannes Grangrund
 import io.circe.generic.auto._
 import sttp.client3._
 import sttp.client3.circe._
@@ -273,7 +277,7 @@ class EnergyController {
         askEnergySource()
     }
   }
-
+  //The 'main' function of this class
   def controlEnergySource(): Unit = {
     val energyType = askEnergySource()
     val fileName = energyType match {
@@ -286,7 +290,7 @@ class EnergyController {
     printEnergySourceInfo(energyType, startTime, endTime)
     AskYesOrNo(energyType)
   }
-
+  // In real life this would be connected to the devices, and be used to connect other appropriate systems
   def moveSolarPanel(newPosition: String): Unit = {
     println(s"The direction of the solar panel has been updated to face $newPosition.")
     println("Handled as a simulation in the code. A real application would connect to the devices.")
@@ -339,7 +343,7 @@ class AnalyzeData {
         AskRange()
     }
   }
-
+  // Beginning of analyzing data once type is known
   def FilterData(energyType: String): Unit = {
     val fileName = energyType match {
       case "solar" => "248Data.csv"
