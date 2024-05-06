@@ -1,7 +1,7 @@
 // Group S
-// Amirreza Jafariandehkordi
-// Tom Malinen
-// Johannes Grangrund
+// Amirreza Jafariandehkordi  000803485
+// Tom Malinen                000423881
+// Johannes Grangrund         001051595
 import io.circe.generic.auto._
 import sttp.client3._
 import sttp.client3.circe._
