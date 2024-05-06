@@ -226,8 +226,8 @@ class EnergyController {
 
   def getCurrentPosition(energyType: String): String = energyType match { // On a real application this would be retrieve info from the devices
     case "solar" => "the sun"
-    case "wind" => "pitch control at 50%"
-    case "hydro" => "Flow control at 50%"
+    case "wind" => "50%"
+    case "hydro" => "50%"
   }
 
   def askYesOrNo(energyType: String): Unit = {
