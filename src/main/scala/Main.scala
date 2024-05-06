@@ -206,7 +206,7 @@ class EnergyController {
   def askForNewPosition(energyType: String): Unit = {
     val (question, validResponses) = energyType match {
       case "solar" => ("Please enter the new position (north, east, south, west, the sun) or 'abort' to cancel: ", Set("north", "east", "south", "west", "the sun", "abort"))
-      case "wind" | "hydro" => ("Please enter the new position (25%, 50%, 75%, 100%) or 'abort' to cancel: ", Set("25%", "50%", "75%", "100%", "abort"))
+      case "wind" | "hydro" => ("Please enter the new position ('25%', '50%', '75%', '100%') or 'abort' to cancel: ", Set("25%", "50%", "75%", "100%", "abort"))
       case _ => ("Invalid energy type.", Set.empty[String]) // Ensure that this is a Set[String]
     }
 
@@ -288,22 +288,15 @@ class EnergyController {
   }
 
   def controlEnergySource(): Unit = {
-    val action = askAction()
-    action match {
-      case "control" =>
-        val energyType = askEnergySource()
-        val fileName = energyType match {
-          case "solar" => "248Data.csv"
-          case "wind" => "181Data.csv"
-          case "hydro" => "191Data.csv"
-        }
-        val (startTime, endTime) = ReadStartAndEndDates(fileName)
-        printEnergySourceInfo(energyType, startTime, endTime)
-        askYesOrNo(energyType)
-      case _ =>
-        println("Invalid action. Please enter either 'view' or 'handle'.")
-        controlEnergySource()
+    val energyType = askEnergySource()
+    val fileName = energyType match {
+      case "solar" => "248Data.csv"
+      case "wind" => "181Data.csv"
+      case "hydro" => "191Data.csv"
     }
+    val (startTime, endTime) = ReadStartAndEndDates(fileName)
+    printEnergySourceInfo(energyType, startTime, endTime)
+    askYesOrNo(energyType)
   }
 
   def moveSolarPanel(newPosition: String): Unit = {
@@ -412,7 +405,7 @@ class AnalyzeData {
       input
     } catch {
       case _: java.time.format.DateTimeParseException =>
-        println("Invalid date format. Please enter the date in the format yyyy-MM-dd.")
+        println("Invalid date format. Please enter the date in the format yyyy-MM-dd. For example, enter '2024-04-12' for April 12, 2024.")
         CheckDateFormat(prompt)
     }
   }
