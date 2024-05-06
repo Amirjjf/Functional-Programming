@@ -114,9 +114,8 @@ object Main extends App {
         new EnergyController().controlEnergySource()
         println()
       case "3" =>
-        println("Analyse data option selected.")
         val analyzeData = new AnalyzeData()
-        val energyType = analyzeData.readEnergyType()
+        val energyType = analyzeData.AskEnergyType()
         analyzeData.FilterData(energyType)
         println()
       case "0" =>
@@ -187,7 +186,7 @@ class PowerAPI {
   }
 }
 
-object StartEndDatesFunction {
+object StartEndDatesObject {
   def getStartAndEndDates(fileName: String, dateFormat: String): (String, String) = {
     val source = scala.io.Source.fromFile(fileName)
     val lines = source.getLines().drop(1).toList
@@ -221,7 +220,7 @@ class EnergyController {
     val (question, validResponses) = energyType match {
       case "solar" => ("Please enter the new position (north, east, south, west, the sun) or 'abort' to cancel: ", Set("north", "east", "south", "west", "the sun", "abort"))
       case "wind" | "hydro" => ("Please enter the new position ('25%', '50%', '75%', '100%') or 'abort' to cancel: ", Set("25%", "50%", "75%", "100%", "abort"))
-      case _ => ("Invalid energy type.", Set.empty[String]) // Ensure that this is a Set[String]
+      case _ => ("Invalid energy type.", Set.empty[String])
     }
 
     askQuestionAndPerformAction(question, validResponses, {
@@ -283,7 +282,7 @@ class EnergyController {
       case "hydro" => "191Data.csv"
     }
     val dateFormat = "yyyy/MM/dd HH:mm:ss"
-    val (startTime, endTime) = StartEndDatesFunction.getStartAndEndDates(fileName, dateFormat)
+    val (startTime, endTime) = StartEndDatesObject.getStartAndEndDates(fileName, dateFormat)
     printEnergySourceInfo(energyType, startTime, endTime)
     AskYesOrNo(energyType)
   }
@@ -306,7 +305,7 @@ class EnergyController {
 
 
 class AnalyzeData {
-  def readEnergyType(): String = {
+  def AskEnergyType(): String = {
     println("Please enter the type of energy to analyze (solar, wind, hydro): ")
     val energyType = StdIn.readLine().toLowerCase
 
@@ -314,11 +313,11 @@ class AnalyzeData {
       case "solar" | "wind" | "hydro" => energyType
       case _ =>
         println("Invalid energy type. Please enter either 'solar', 'wind', or 'hydro'.")
-        readEnergyType()
+        AskEnergyType()
     }
   }
 
-  def readInterval(): String = {
+  def AskInterval(): String = {
     println("Please enter the interval for data analysis (hourly, daily, weekly, monthly): ")
     val interval = StdIn.readLine().toLowerCase
 
@@ -326,18 +325,18 @@ class AnalyzeData {
       case "hourly" | "daily" | "weekly" | "monthly" => interval
       case _ =>
         println("Invalid interval. Please enter either 'hourly', 'daily', 'weekly', or 'monthly'.")
-        readInterval()
+        AskInterval()
     }
   }
 
-  def readRangeChoice(): String = {
+  def AskRange(): String = {
     println("Do you want to analyze the whole data set or a specific range? (whole/range)")
     val AnalyzeChoice = StdIn.readLine().toLowerCase
     AnalyzeChoice match {
       case "whole" | "range" => AnalyzeChoice
       case _ =>
         println("Invalid choice. Please enter either 'whole' or 'range'.")
-        readRangeChoice()
+        AskRange()
     }
   }
 
@@ -348,19 +347,19 @@ class AnalyzeData {
       case "hydro" => "191Data.csv"
     }
 
-    val interval = readInterval()
-    val rangeChoice = readRangeChoice()
+    val interval = AskInterval()
+    val rangeChoice = AskRange()
 
     rangeChoice match {
       case "whole" =>
-        val data = analyze(interval, fileName, None, None)
+        val data = Analyze(interval, fileName, None, None)
         printAnalysis(data, interval)
       case "range" =>
         val dateFormat = "yyyy-MM-dd"
-        val (oldestEntry, newestEntry) = StartEndDatesFunction.getStartAndEndDates(fileName, dateFormat)
+        val (oldestEntry, newestEntry) = StartEndDatesObject.getStartAndEndDates(fileName, dateFormat)
         println(s"The oldest entry in the data is from $oldestEntry and the newest entry is from $newestEntry")
         val (startDate, endDate) = getValidDates(oldestEntry, newestEntry)
-        val data = analyze(interval, fileName, Some(startDate), Some(endDate))
+        val data = Analyze(interval, fileName, Some(startDate), Some(endDate))
         printAnalysis(data, interval)
       case _ =>
         println("Invalid choice. Please enter either 'whole' or 'range'.")
@@ -400,7 +399,7 @@ class AnalyzeData {
     }
   }
 
-  def analyze(interval: String, fileName: String, startDate: Option[String], endDate: Option[String]): List[TimeSeriesData] = {
+  def Analyze(interval: String, fileName: String, startDate: Option[String], endDate: Option[String]): List[TimeSeriesData] = {
     val source = scala.io.Source.fromFile(fileName)
     try {
       val lines = source.getLines().drop(1)
@@ -415,10 +414,10 @@ class AnalyzeData {
       }
 
       interval match {
-        case "hourly" => aggregateHourly(filteredData)
-        case "daily" => aggregateDaily(filteredData)
-        case "weekly" => aggregateWeekly(filteredData)
-        case "monthly" => aggregateMonthly(filteredData)
+        case "hourly" => GroupAVGHourly(filteredData)
+        case "daily" => GroupAVGDaily(filteredData)
+        case "weekly" => GroupAVGWeekly(filteredData)
+        case "monthly" => GroupAVGMonthly(filteredData)
         case _ => filteredData
       }
     } finally {
@@ -426,7 +425,7 @@ class AnalyzeData {
     }
   }
 
-  def aggregate(data: List[TimeSeriesData], grouper: ZonedDateTime => ZonedDateTime): List[TimeSeriesData] = {
+  def GroupAVG(data: List[TimeSeriesData], grouper: ZonedDateTime => ZonedDateTime): List[TimeSeriesData] = {
     val groupedData = data.groupBy(d => grouper(ZonedDateTime.parse(d.startTime)))
     groupedData.map { case (time, dataList) =>
       val averageValue = dataList.map(_.value).sum / dataList.size
@@ -434,20 +433,20 @@ class AnalyzeData {
     }.toList
   }
 
-  def aggregateHourly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
-    aggregate(data, _.truncatedTo(ChronoUnit.HOURS))
+  def GroupAVGHourly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    GroupAVG(data, _.truncatedTo(ChronoUnit.HOURS))
   }
 
-  def aggregateDaily(data: List[TimeSeriesData]): List[TimeSeriesData] = {
-    aggregate(data, _.truncatedTo(ChronoUnit.DAYS))
+  def GroupAVGDaily(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    GroupAVG(data, _.truncatedTo(ChronoUnit.DAYS))
   }
 
-  def aggregateWeekly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
-    aggregate(data, _.`with`(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)))
+  def GroupAVGWeekly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    GroupAVG(data, _.`with`(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)))
   }
 
-  def aggregateMonthly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
-    aggregate(data, _.withDayOfMonth(1))
+  def GroupAVGMonthly(data: List[TimeSeriesData]): List[TimeSeriesData] = {
+    GroupAVG(data, _.withDayOfMonth(1))
   }
 
   def printAnalysis(data: List[TimeSeriesData], interval: String): Unit = {
