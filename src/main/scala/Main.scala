@@ -275,18 +275,6 @@ class EnergyController {
     }
   }
 
-  def askAction(): String = {
-    println("Do you wish to control energy generators or modify maximum capacity? (control/capacity): ")
-    val action = scala.io.StdIn.readLine().toLowerCase
-
-    action match {
-      case "control" | "capacity" => action
-      case _ =>
-        println("Invalid action. Please enter either 'control' or 'capacity'.")
-        askAction()
-    }
-  }
-
   def controlEnergySource(): Unit = {
     val energyType = askEnergySource()
     val fileName = energyType match {
